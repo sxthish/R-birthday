@@ -1,0 +1,525 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Virtual Cake — Cut the Cake 🎂</title>
+<style>
+  :root{
+    --bg:#0f172a; --card:#0b1220; --accent:#ff6b6b; --cream:#fff2e6;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+    background: linear-gradient(180deg,#071029 0%, #12202e 60%);
+    font-family: 'Segoe UI', Roboto, system-ui, Arial; color:#e6eef8;
+    padding:20px;
+  }
+
+  .stage{
+    width:100%; max-width:920px; background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+    border-radius:16px; padding:18px; box-shadow: 0 10px 30px rgba(2,6,23,0.6);
+  }
+
+  header{display:flex; gap:12px; align-items:center; margin-bottom:12px}
+  header h1{margin:0; font-size:20px; letter-spacing:0.2px}
+  .controls{margin-left:auto; display:flex; gap:8px; align-items:center}
+
+  input[type=file]{display:none}
+  .btn{
+    background:linear-gradient(180deg,var(--accent),#ff4d4d); padding:8px 12px; border-radius:10px; border:none; color:white;
+    cursor:pointer; font-weight:600; box-shadow:0 6px 14px rgba(255,75,90,0.12);
+  }
+  .btn.ghost{background:transparent; border:1px solid rgba(255,255,255,0.06); color:#cfe5ff}
+
+  .content{display:flex; gap:18px; align-items:flex-start; flex-wrap:wrap}
+  .left{flex:1 1 360px; min-width:300px}
+  .right{width:340px; min-width:260px}
+
+  /* Card containing cake canvas */
+  .card{
+    background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+    border-radius:12px; padding:14px; border:1px solid rgba(255,255,255,0.03);
+  }
+  .canvas-wrap{position:relative; width:100%; height:420px; display:flex; align-items:center; justify-content:center}
+  canvas{border-radius:12px; display:block}
+
+  /* UI below canvas */
+  .status{margin-top:10px; font-size:14px; color:#cfe5ff; min-height:20px}
+  .hint{font-size:13px; color:#9fb7dc}
+
+  /* Cake slice area */
+  .actions{display:flex; gap:8px; margin-top:12px}
+  .big{font-size:16px; padding:10px 14px}
+
+  /* Message / overlay */
+  .message{
+    margin-top:14px; padding:10px; border-radius:8px; background:linear-gradient(90deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+    border:1px solid rgba(255,255,255,0.03);
+  }
+  .message h2{margin:0 0 6px 0; font-size:16px}
+  .message p{margin:0; color:#cfe5ff}
+
+  footer{margin-top:12px; font-size:12px; color:#8aa7d7}
+
+  /* small responsive tweaks */
+  @media (max-width:880px){
+    .right{width:100%}
+  }
+</style>
+</head>
+<body>
+  <div class="stage">
+    <header>
+      <h1>🎂 Birthday Cake </h1>
+      <div class="controls">
+        <label class="btn" title="Upload her photo">
+          Upload Photo
+          <input id="photoInput" type="file" accept="image/*">
+        </label>
+        <button id="resetBtn" class="btn ghost">Reset</button>
+      </div>
+    </header>
+
+    <div class="content">
+      <div class="left card">
+        <div class="canvas-wrap">
+          <canvas id="scene" width="640" height="420"></canvas>
+          <!-- canvas used for confetti is created by JS -->
+        </div>
+
+        <div class="status" id="status">Upload her photo or use the placeholder, then press <strong>Cut Cake</strong>.</div>
+        <div class="actions">
+          <button id="cutBtn" class="btn big">🎉 Cut Cake</button>
+          <button id="sliceBtn" class="btn ghost big">🍰 Get Slice</button>
+        </div>
+
+        <div class="message">
+          <h2 id="wishTitle">Happy Birthday!</h2>
+          <p id="wishText">From India to New York — send your love across the miles. 💌</p>
+        </div>
+      </div>
+
+      <!-- <aside class="right card">
+        <h3 style="margin-top:0">Preview & Tips</h3>
+        <p class="hint">• Upload a clear portrait so the face fits the round topper nicely.<br>• If you prefer, replace the placeholder by clicking Upload Photo.</p>
+        <hr style="opacity:0.06;margin:12px 0">
+        <p><strong>Controls</strong></p>
+        <ul style="margin:6px 0 0 18px">
+          <li>Cut Cake — plays candle & cutting animation + confetti</li>
+          <li>Get Slice — moves a slice out for a cute effect</li>
+          <li>Reset — put everything back</li>
+        </ul> -->
+
+        <footer>
+          <p>Made with ❤️ — You can customize the message below before cutting:</p>
+          <textarea id="customMsg" rows="4" style="width:100%; background:transparent; color:#cfe5ff; border:1px dashed rgba(255,255,255,0.03); padding:8px; border-radius:8px;">
+Happy Birthday — I miss you. ✈️💖</textarea>
+          <button id="applyMsg" class="btn" style="margin-top:8px">Apply Message</button>
+        </footer>
+      </aside>
+    </div>
+  </div>
+
+<script>
+/*
+  Virtual Cake JS
+  - Draws cake using canvas 2D
+  - Draws circular face topper (user-uploaded or placeholder)
+  - Animates candles (flicker)
+  - Slice animation and confetti
+*/
+
+const canvas = document.getElementById('scene');
+const ctx = canvas.getContext('2d', { alpha: true });
+let photoImg = new Image();
+let faceReady = false;
+const DEFAULT_PHOTO = 'data:image/svg+xml;utf8,' + encodeURIComponent(`
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400">
+  <rect width="100%" height="100%" fill="#cfe5ff"/>
+  <g transform="translate(200,160)">
+    <circle r="88" fill="#fff" stroke="#dbeeff" stroke-width="4"/>
+    <g transform="translate(-22,-6)" fill="#10263a" font-family="sans-serif" font-size="20">
+      <text x="0" y="0">Your</text>
+      <text x="0" y="28">Love</text>
+    </g>
+  </g>
+</svg>
+`);
+
+// cake params
+const cake = {
+  x: canvas.width/2,
+  baseY: 320,
+  width: 420,
+  height: 160,
+  layerHeight: 40,
+  topperRadius: 80
+};
+
+// animation state
+let candlePhase = 0;
+let animFrame = null;
+let cutting = false;
+let sliceOut = false;
+let confettiParticles = [];
+let confettiCanvas, confettiCtx;
+
+function resetState(){
+  cutting = false; sliceOut=false; confettiParticles=[]; faceReady = !!photoImg.src;
+  document.getElementById('status').textContent = 'Ready. Upload a photo or use placeholder, then press Cut Cake.';
+  drawScene();
+}
+
+// load default image first
+photoImg.onload = () => { faceReady = true; drawScene(); };
+photoImg.src = DEFAULT_PHOTO;
+
+// handle upload
+const photoInput = document.getElementById('photoInput');
+photoInput.addEventListener('change', (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const url = URL.createObjectURL(f);
+  const img = new Image();
+  img.onload = () => {
+    // scale/crop logic will be applied when drawing; store as photoImg
+    photoImg = img;
+    faceReady = true;
+    document.getElementById('status').textContent = 'Photo loaded. Ready to cut! ✨';
+    drawScene();
+    URL.revokeObjectURL(url);
+  };
+  img.onerror = () => {
+    alert('Could not load image file. Try another one.');
+  };
+  img.src = url;
+});
+
+// apply custom message
+document.getElementById('applyMsg').addEventListener('click', () => {
+  const text = document.getElementById('customMsg').value.trim();
+  document.getElementById('wishText').textContent = text || 'Happy Birthday!';
+});
+
+// reset
+document.getElementById('resetBtn').addEventListener('click', () => {
+  photoImg = new Image();
+  photoImg.src = DEFAULT_PHOTO;
+  document.getElementById('customMsg').value = 'Happy Birthday, my love! From India to New York — I miss you. ✈️💖';
+  document.getElementById('wishTitle').textContent = 'Happy Birthday!';
+  document.getElementById('wishText').textContent = 'From India to New York — send your love across the miles. 💌';
+  resetState();
+});
+
+// draw cake
+function drawScene(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  // background glow
+  const g = ctx.createLinearGradient(0,0,0,canvas.height);
+  g.addColorStop(0, 'rgba(255,255,255,0.02)');
+  g.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // table shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  ctx.beginPath();
+  ctx.ellipse(cake.x, cake.baseY + cake.height/2 + 30, cake.width*0.5, 24, 0,0,Math.PI*2);
+  ctx.fill();
+
+  // cake layers (3)
+  const layers = 3;
+  for(let i=0;i<layers;i++){
+    const h = cake.layerHeight;
+    const y = cake.baseY - i*h;
+    const w = cake.width - i*28;
+    // icing top
+    ctx.fillStyle = i%2===0 ? '#ffe8d6' : '#fff6f0';
+    roundRect(ctx, cake.x - w/2, y - h, w, h, 18);
+    ctx.fill();
+    // border
+    ctx.strokeStyle = 'rgba(0,0,0,0.06)';
+    ctx.stroke();
+    // decorations (dots)
+    for(let d=0; d<8; d++){
+      const dx = cake.x - w/2 + 28 + d*( (w-56)/7 );
+      const dy = y - h/2 + 2 + (i%2?6:-6);
+      ctx.beginPath();
+      ctx.fillStyle = i%2===0 ? '#ff6b6b' : '#ffb4a2';
+      ctx.arc(dx, dy, 6, 0, Math.PI*2);
+      ctx.fill();
+    }
+  }
+
+  // plate
+  ctx.fillStyle = '#fff';
+  ctx.globalAlpha = 0.06;
+  roundRect(ctx, cake.x - cake.width*0.6/2, cake.baseY + cake.height*0.08, cake.width*0.6, 18, 9);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+
+  // topper: circular face
+  const topX = cake.x;
+  const topY = cake.baseY - cake.layerHeight*layers - cake.topperRadius/2 + 6;
+  drawCircularImage(photoImg, topX, topY, cake.topperRadius);
+
+  // candles on top (x positions)
+  const candleCount = 5;
+  const candleY = cake.baseY - layers*cake.layerHeight - 34;
+  for(let i=0;i<candleCount;i++){
+    const cx = cake.x - 80 + i*40;
+    drawCandle(cx, candleY + Math.sin(candlePhase + i)*1.6, i);
+  }
+
+  // if sliceOut, draw moving slice
+  if(sliceOut) drawSliceOut();
+
+  // overlay small text
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  ctx.font = '14px system-ui,Segoe UI,Roboto';
+  ctx.textAlign = 'center';
+  ctx.fillText("From India ➜ New York — Happy Birthday!", cake.x, 28);
+
+}
+
+// helpers
+function roundRect(ctx, x, y, w, h, r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r);
+  ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r);
+  ctx.arcTo(x,y,x+w,y,r);
+  ctx.closePath();
+}
+
+function drawCircularImage(img, cx, cy, r){
+  // draw a circle mask, then draw image fitted to circle
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI*2);
+  ctx.closePath();
+  ctx.clip();
+
+  // compute cover crop
+  const iw = img.width || img.naturalWidth || 400;
+  const ih = img.height || img.naturalHeight || 400;
+  const scale = Math.max((r*2)/iw, (r*2)/ih);
+  const dw = iw * scale;
+  const dh = ih * scale;
+  const dx = cx - dw/2;
+  const dy = cy - dh/2;
+  try { ctx.drawImage(img, dx, dy, dw, dh); } catch(e){
+    // fallback: fill a color
+    ctx.fillStyle = '#f7f7f7'; ctx.fillRect(cx-r, cy-r, r*2, r*2);
+  }
+  ctx.restore();
+
+  // ring
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI*2);
+  ctx.lineWidth = 6;
+  ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+  ctx.stroke();
+}
+
+function drawCandle(x, y, idx){
+  // body
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(x-6, y-20, 12, 20);
+  // stripes
+  ctx.fillStyle = '#ff6b6b';
+  ctx.fillRect(x-6, y-16 + Math.sin(candlePhase+idx)*1.6, 12, 4);
+  // flame
+  const flameY = y-28 + Math.cos(candlePhase*2+idx)*1.2;
+  drawFlame(x, flameY);
+}
+
+function drawFlame(x,y){
+  // gradient for flame
+  const g = ctx.createRadialGradient(x, y-6, 2, x, y, 14);
+  g.addColorStop(0, 'rgba(255,255,180,1)');
+  g.addColorStop(0.5, 'rgba(255,160,60,0.9)');
+  g.addColorStop(1, 'rgba(255,110,40,0.06)');
+  ctx.beginPath();
+  ctx.fillStyle = g;
+  ctx.moveTo(x, y);
+  ctx.quadraticCurveTo(x+8, y-10, x, y-22);
+  ctx.quadraticCurveTo(x-8, y-10, x, y);
+  ctx.fill();
+}
+
+// slice animation: draw a triangular slice area moved out when triggered
+let sliceOffset = 0;
+function drawSliceOut(){
+  const sx = cake.x + 80 + sliceOffset;
+  const sy = cake.baseY - cake.layerHeight*3;
+  // draw slice shadow
+  ctx.save();
+  ctx.globalAlpha = 0.12;
+  ctx.beginPath();
+  ctx.moveTo(cake.x + 28, cake.baseY);
+  ctx.lineTo(cake.x + 120, cake.baseY);
+  ctx.lineTo(sx + 30, cake.baseY + 40);
+  ctx.closePath();
+  ctx.fillStyle = '#000';
+  ctx.fill();
+  ctx.restore();
+
+  // slice body
+  ctx.beginPath();
+  ctx.moveTo(cake.x + 28, cake.baseY - 6);
+  ctx.lineTo(cake.x + 120, cake.baseY - 6);
+  ctx.lineTo(sx + 30, cake.baseY + 40 - 6);
+  ctx.closePath();
+  ctx.fillStyle = '#fff3ea';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(0,0,0,0.04)';
+  ctx.stroke();
+
+  // add decorations on slice
+  for(let i=0;i<4;i++){
+    const dx = cake.x + 40 + i*20 + sliceOffset*0.4;
+    const dy = cake.baseY - 10 + i%2*6;
+    ctx.beginPath();
+    ctx.arc(dx, dy, 5, 0, Math.PI*2);
+    ctx.fillStyle = '#ff9a8b';
+    ctx.fill();
+  }
+}
+
+// animation loop
+function animate(){
+  candlePhase += 0.04;
+  // slice out movement if triggered
+  if(sliceOut && sliceOffset < 140) sliceOffset += 6;
+  if(!sliceOut && sliceOffset > 0) sliceOffset -= 8;
+
+  // confetti update
+  updateConfetti();
+  drawScene();
+  animFrame = requestAnimationFrame(animate);
+}
+
+// confetti
+function createConfetti() {
+  // create overlay canvas
+  if(!confettiCanvas){
+    confettiCanvas = document.createElement('canvas');
+    confettiCanvas.style.position = 'absolute';
+    confettiCanvas.style.left = canvas.offsetLeft + 'px';
+    confettiCanvas.style.top = canvas.offsetTop + 'px';
+    confettiCanvas.width = canvas.width;
+    confettiCanvas.height = canvas.height;
+    confettiCanvas.style.pointerEvents = 'none';
+    confettiCtx = confettiCanvas.getContext('2d');
+    canvas.parentElement.appendChild(confettiCanvas);
+  }
+  confettiParticles = [];
+  const colors = ['#ff6b6b','#ffd26b','#6bffd6','#6b9cff','#d46bff','#ff9ab6'];
+  for(let i=0;i<120;i++){
+    confettiParticles.push({
+      x: Math.random()*canvas.width,
+      y: -Math.random()*canvas.height,
+      vx: (Math.random()-0.5)*2,
+      vy: 1 + Math.random()*4,
+      r: 4 + Math.random()*6,
+      color: colors[Math.floor(Math.random()*colors.length)],
+      rot: Math.random()*360,
+      vr: (Math.random()-0.5)*6
+    });
+  }
+}
+
+function updateConfetti(){
+  if(!confettiCtx) return;
+  confettiCtx.clearRect(0,0,confettiCanvas.width, confettiCanvas.height);
+  if(confettiParticles.length === 0) return;
+  confettiParticles.forEach(p=>{
+    p.x += p.vx;
+    p.y += p.vy;
+    p.vy += 0.03;
+    p.rot += p.vr;
+    confettiCtx.save();
+    confettiCtx.translate(p.x, p.y);
+    confettiCtx.rotate(p.rot * Math.PI/180);
+    confettiCtx.fillStyle = p.color;
+    confettiCtx.fillRect(-p.r/2, -p.r/2, p.r, p.r*1.6);
+    confettiCtx.restore();
+  });
+  // remove those below bottom after some time
+  confettiParticles = confettiParticles.filter(p => p.y < confettiCanvas.height + 60);
+}
+
+// cut button
+document.getElementById('cutBtn').addEventListener('click', () => {
+  if(cutting) return;
+  cutting = true;
+  document.getElementById('status').textContent = "Cutting... 🎶";
+  // start confetti and slice animation, and a little message
+  createConfetti();
+  // small audio-like beep sequences (use WebAudio)
+  const ctxAudio = new (window.AudioContext || window.webkitAudioContext)();
+  const playTone = (f,d) => {
+    const o = ctxAudio.createOscillator();
+    const g = ctxAudio.createGain();
+    o.type = 'sine'; o.frequency.value = f;
+    g.gain.value = 0.03;
+    o.connect(g); g.connect(ctxAudio.destination);
+    o.start();
+    setTimeout(()=>{ o.stop(); }, d);
+  };
+  playTone(880,120); setTimeout(()=>playTone(1046,120),160);
+  setTimeout(()=>playTone(1318,220),340);
+
+  // animate: sliceOut true shortly to show slice moving
+  sliceOut = true;
+  // confetti spawn
+  setTimeout(() => {
+    // continue confetti for a while
+    // clear confetti after 5s
+    setTimeout(()=>{ confettiParticles=[]; }, 4500);
+    // show final message
+    setTimeout(()=>{
+      document.getElementById('status').textContent = "🎉 Cake cut! Send her a video or screenshot to share the moment.";
+      document.getElementById('wishTitle').textContent = "Happy Birthday ❤️";
+      document.getElementById('wishText').textContent = document.getElementById('customMsg').value.trim();
+    }, 1200);
+  }, 200);
+
+  // after some seconds, stop cutting flag
+  setTimeout(()=>{
+    cutting = false;
+    // optionally bring slice back after a moment
+    setTimeout(()=>{ sliceOut=false; }, 2200);
+  }, 4200);
+});
+
+// slice only button
+document.getElementById('sliceBtn').addEventListener('click', () => {
+  if(sliceOut) return;
+  sliceOut = true;
+  document.getElementById('status').textContent = "Taking a slice... 🍰";
+  setTimeout(()=>{ sliceOut=false; document.getElementById('status').textContent = "Slice returned."; }, 2200);
+});
+
+// start animation loop
+animate();
+
+// small resize handler for confetti canvas position
+window.addEventListener('resize', () => {
+  if(confettiCanvas){
+    confettiCanvas.style.left = canvas.offsetLeft + 'px';
+    confettiCanvas.style.top = canvas.offsetTop + 'px';
+    confettiCanvas.width = canvas.width;
+    confettiCanvas.height = canvas.height;
+  }
+});
+
+// draw first frame
+drawScene();
+</script>
+</body>
+</html>
